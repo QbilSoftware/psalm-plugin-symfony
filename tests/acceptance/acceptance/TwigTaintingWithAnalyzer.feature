@@ -1579,3 +1579,75 @@ Feature: Twig tainting with analyzer
       """
     When I run Psalm with taint analysis
     And I see no errors
+
+  Scenario: A controller renders a tainted parameter displayed with only the raw filter
+    Given I have the following code
+      """
+      use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+      use Symfony\Component\HttpFoundation\Response;
+
+      /** @psalm-api */
+      final class UserController extends AbstractController
+      {
+          public function show(): Response
+          {
+              return $this->render('index.html.twig', ['untrusted' => $_GET['untrusted']]);
+          }
+      }
+      """
+    And I have the following "index.html.twig" template
+      """
+      <h1>{{ untrusted|raw }}</h1>
+      """
+    When I run Psalm with taint analysis
+    Then I see these errors
+      | Type        | Message               |
+      | TaintedHtml | Detected tainted HTML |
+    And I see no other errors
+
+  Scenario: A controller renders a tainted parameter with autoescaping on
+    Given I have the following code
+      """
+      use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+      use Symfony\Component\HttpFoundation\Response;
+
+      /** @psalm-api */
+      final class UserController extends AbstractController
+      {
+          public function show(): Response
+          {
+              return $this->render('index.html.twig', ['untrusted' => $_GET['untrusted']]);
+          }
+      }
+      """
+    And I have the following "index.html.twig" template
+      """
+      <h1>{{ untrusted }}</h1>
+      """
+    When I run Psalm with taint analysis
+    And I see no errors
+
+  Scenario: A controller puts a view with a tainted parameter displayed with only the raw filter in a response
+    Given I have the following code
+      """
+      use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+      use Symfony\Component\HttpFoundation\Response;
+
+      /** @psalm-api */
+      final class UserController extends AbstractController
+      {
+          public function show(): Response
+          {
+              return new Response($this->renderView('index.html.twig', ['untrusted' => $_GET['untrusted']]));
+          }
+      }
+      """
+    And I have the following "index.html.twig" template
+      """
+      <h1>{{ untrusted|raw }}</h1>
+      """
+    When I run Psalm with taint analysis
+    Then I see these errors
+      | Type        | Message               |
+      | TaintedHtml | Detected tainted HTML |
+    And I see no other errors
