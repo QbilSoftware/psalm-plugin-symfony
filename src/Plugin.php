@@ -3,7 +3,9 @@
 namespace Psalm\SymfonyPsalmPlugin;
 
 use Doctrine\Common\Annotations\AnnotationRegistry;
+use Psalm\Config;
 use Psalm\Exception\ConfigException;
+use Psalm\Internal\CliUtils;
 use Psalm\Plugin\PluginEntryPointInterface;
 use Psalm\Plugin\RegistrationInterface;
 use Psalm\SymfonyPsalmPlugin\Handler\AnnotationHandler;
@@ -17,6 +19,7 @@ use Psalm\SymfonyPsalmPlugin\Handler\ParameterBagHandler;
 use Psalm\SymfonyPsalmPlugin\Handler\RequiredSetterHandler;
 use Psalm\SymfonyPsalmPlugin\Provider\FormGetErrorsReturnTypeProvider;
 use Psalm\SymfonyPsalmPlugin\Symfony\ContainerMeta;
+use Psalm\SymfonyPsalmPlugin\Symfony\InstalledSymfonyVersion;
 use Psalm\SymfonyPsalmPlugin\Twig\AnalyzedTemplatesTainter;
 use Psalm\SymfonyPsalmPlugin\Twig\CachedTemplatesMapping;
 use Psalm\SymfonyPsalmPlugin\Twig\CachedTemplatesTainter;
@@ -89,7 +92,9 @@ final class Plugin implements PluginEntryPointInterface
 
         $registration->registerHooksFromClass(ContainerHandler::class);
 
-        $symfonyMajorVersion = (string) ($config->symfonyMajorVersion ?? Kernel::MAJOR_VERSION);
+        $symfonyMajorVersion = (string) ($config->symfonyMajorVersion
+            ?? InstalledSymfonyVersion::major(self::projectVendorDirectory())
+            ?? Kernel::MAJOR_VERSION);
 
         $this->addStubs($registration, __DIR__.'/Stubs/common');
         $this->addStubs($registration, __DIR__.'/Stubs/'.$symfonyMajorVersion);
@@ -123,6 +128,13 @@ final class Plugin implements PluginEntryPointInterface
         }
 
         $registration->registerHooksFromClass(FormGetErrorsReturnTypeProvider::class);
+    }
+
+    private static function projectVendorDirectory(): string
+    {
+        $baseDirectory = Config::getInstance()->base_dir;
+
+        return rtrim($baseDirectory, DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR.CliUtils::getVendorDir($baseDirectory);
     }
 
     private function addStubs(RegistrationInterface $registration, string $path): void
