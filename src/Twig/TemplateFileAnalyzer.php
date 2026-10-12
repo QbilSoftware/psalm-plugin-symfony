@@ -9,6 +9,7 @@ use Psalm\Context as PsalmContext;
 use Psalm\Internal\Analyzer\FileAnalyzer;
 use Twig\Environment;
 use Twig\Error\Error;
+use Twig\Extension\AttributeExtension;
 use Twig\Extension\ExtensionInterface;
 use Twig\Loader\FilesystemLoader;
 use Twig\NodeTraverser;
@@ -21,18 +22,20 @@ final class TemplateFileAnalyzer extends FileAnalyzer
     private static string $rootPath = 'templates';
 
     /**
-     * @var list<class-string>
+     * The extensions of the application, by class or as built by the application.
+     *
+     * @var list<class-string|ExtensionInterface>
      */
-    private static array $extensionClasses = [];
+    private static array $extensions = [];
 
     private static ?Environment $environment = null;
 
     /**
-     * @param list<class-string> $extensionClasses
+     * @param list<class-string|ExtensionInterface> $extensions
      */
-    public static function initExtensions(array $extensionClasses): void
+    public static function initExtensions(array $extensions): void
     {
-        self::$extensionClasses = $extensionClasses;
+        self::$extensions = $extensions;
         self::$environment = null;
     }
 
@@ -93,13 +96,55 @@ final class TemplateFileAnalyzer extends FileAnalyzer
             'optimizations' => 0,
             'strict_variables' => false,
         ]);
-        foreach (self::$extensionClasses as $extensionClass) {
-            if (class_exists($extensionClass) && is_a($extensionClass, ExtensionInterface::class, true)) {
-                $twig->addExtension((new \ReflectionClass($extensionClass))->newInstanceWithoutConstructor());
+        foreach (self::$extensions as $extension) {
+            if (\is_string($extension)) {
+                if (!class_exists($extension) || !is_a($extension, ExtensionInterface::class, true)) {
+                    continue;
+                }
+
+                // only the parser runs, which needs what the extension lists, not the services it would be given
+                $extension = (new \ReflectionClass($extension))->newInstanceWithoutConstructor();
             }
+
+            $name = $extension instanceof AttributeExtension ? $extension->getClass() : $extension::class;
+            if ($twig->hasExtension($name)) {
+                continue;
+            }
+
+            if (!self::listsItsParts($extension)) {
+                $codebase->progress->warning(\sprintf('The Twig extension %s is left out of the analysis: it needs its services to list its filters, functions and tags. Give the analysis the Twig environment of the application with the twigEnvironment option.', $name));
+
+                continue;
+            }
+
+            $twig->addExtension($extension);
         }
 
         return self::$environment = $twig;
+    }
+
+    /**
+     * Whether the extension can list what it adds to Twig. One built without its constructor cannot when
+     * it reads a service to do so, and Twig would then fail on every template, deep in the analysis.
+     */
+    private static function listsItsParts(ExtensionInterface $extension): bool
+    {
+        try {
+            $extension->getTokenParsers();
+            $extension->getNodeVisitors();
+            $extension->getFilters();
+            $extension->getTests();
+            $extension->getFunctions();
+            if (method_exists($extension, 'getExpressionParsers')) {
+                $extension->getExpressionParsers();
+            } else {
+                $extension->getOperators();
+            }
+        } catch (\Error) {
+            return false;
+        }
+
+        return true;
     }
 
     public static function setTemplateRootPath(string $rootPath): void

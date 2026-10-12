@@ -23,6 +23,9 @@ use Psalm\SymfonyPsalmPlugin\Twig\CachedTemplatesTainter;
 use Psalm\SymfonyPsalmPlugin\Twig\TemplateFileAnalyzer;
 use Symfony\Component\DependencyInjection\Exception\ServiceNotFoundException;
 use Symfony\Component\HttpKernel\Kernel;
+use Twig\Environment;
+use Twig\Extension\AttributeExtension;
+use Twig\Extension\ExtensionInterface;
 
 /**
  * @psalm-suppress UnusedClass
@@ -61,24 +64,34 @@ final class Plugin implements PluginEntryPointInterface
             $registration->registerHooksFromClass(AnnotationHandler::class);
         }
 
+        $twigExtensions = [];
+
         if (isset($config->containerXml)) {
             $containerMeta = new ContainerMeta((array) $config->containerXml);
             ContainerHandler::init($containerMeta);
 
             try {
-                /** @psalm-var list<class-string> $extensionClasses */
-                $extensionClasses = array_filter(array_map(function (array $m) use ($containerMeta) {
-                    if ('addExtension' !== $m[0]) {
-                        return null;
+                foreach ($containerMeta->get('twig')->getMethodCalls() as [$method, $arguments]) {
+                    if ('addExtension' !== $method) {
+                        continue;
                     }
 
                     try {
-                        return $containerMeta->get($m[1][0])->getClass();
+                        $definition = $containerMeta->get((string) $arguments[0]);
                     } catch (ServiceNotFoundException $e) {
-                        return null;
+                        continue;
                     }
-                }, $containerMeta->get('twig')->getMethodCalls()));
-                TemplateFileAnalyzer::initExtensions($extensionClasses);
+
+                    if (AttributeExtension::class !== $definition->getClass()) {
+                        $twigExtensions[] = $definition->getClass();
+                        continue;
+                    }
+
+                    // the extension of a class of #[AsTwigFilter] and the like methods, named by its argument
+                    /** @var class-string $attributeClass */
+                    $attributeClass = (string) $definition->getArgument(0);
+                    $twigExtensions[] = new AttributeExtension($attributeClass);
+                }
             } catch (ServiceNotFoundException $e) {
             }
 
@@ -86,6 +99,13 @@ final class Plugin implements PluginEntryPointInterface
             ParameterBagHandler::init($containerMeta);
             $registration->registerHooksFromClass(ParameterBagHandler::class);
         }
+
+        if (isset($config->twigEnvironment)) {
+            $twigExtensions = [...$twigExtensions, ...self::extensionsOf((string) $config->twigEnvironment)];
+        }
+
+        /** @var list<class-string|ExtensionInterface> $twigExtensions */
+        TemplateFileAnalyzer::initExtensions($twigExtensions);
 
         $registration->registerHooksFromClass(ContainerHandler::class);
 
@@ -123,6 +143,28 @@ final class Plugin implements PluginEntryPointInterface
         }
 
         $registration->registerHooksFromClass(FormGetErrorsReturnTypeProvider::class);
+    }
+
+    /**
+     * The extensions of the Twig environment a PHP file of the application returns, built by the application
+     * with their services, for an application without a container XML or with extensions that need services.
+     *
+     * @return list<ExtensionInterface>
+     */
+    private static function extensionsOf(string $environmentFile): array
+    {
+        $path = (string) getcwd().DIRECTORY_SEPARATOR.ltrim($environmentFile, DIRECTORY_SEPARATOR);
+        if (!is_file($path)) {
+            throw new ConfigException(sprintf('The Twig environment file %s is missing.', $environmentFile));
+        }
+
+        /** @psalm-suppress UnresolvableInclude the application names the file in its Psalm configuration */
+        $environment = (static fn (): mixed => require $path)();
+        if (!$environment instanceof Environment) {
+            throw new ConfigException(sprintf('The Twig environment file %s does not return a %s.', $environmentFile, Environment::class));
+        }
+
+        return array_values($environment->getExtensions());
     }
 
     private function addStubs(RegistrationInterface $registration, string $path): void

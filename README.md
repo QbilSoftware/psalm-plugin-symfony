@@ -150,6 +150,29 @@ To leverage the real Twig file analyzer, you have to configure a checker and a s
 
 Without the scanner, Psalm also parses the templates as PHP, and reports parse errors for those containing `<?php`.
 
+The analyzer parses the templates with the Twig extensions of the `containerXml`. Without a container XML, or when
+an extension needs its services to list its filters, functions and tags, give it the Twig environment of your
+application instead: a PHP file that returns it.
+
+```xml
+<pluginClass class="Psalm\SymfonyPsalmPlugin\Plugin">
+    <twigEnvironment>tests/twig-environment.php</twigEnvironment>
+</pluginClass>
+```
+
+```php
+<?php // tests/twig-environment.php
+
+require dirname(__DIR__).'/vendor/autoload.php';
+
+$kernel = new App\Kernel('dev', false);
+$kernel->boot();
+
+return $kernel->getContainer()->get('twig');
+```
+
+An extension the analyzer cannot build is left out with a warning, and the templates that use it are not analyzed.
+
 [See the currently supported cases.](https://github.com/psalm/psalm-plugin-symfony/blob/master/tests/acceptance/acceptance/TwigTaintingWithAnalyzer.feature)
 
 #### Cache Analyzer

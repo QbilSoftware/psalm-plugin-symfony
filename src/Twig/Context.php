@@ -480,7 +480,8 @@ final class Context
             return false === $file
                 ? $codebase->functions->getStorage(null, strtolower($callable))
                 : $codebase->functions->getStorage(null, strtolower($callable), $file, $file);
-        } catch (\UnexpectedValueException) {
+        } catch (\UnexpectedValueException|\InvalidArgumentException) {
+            // a function in a file the analysis did not scan, like those of an extension in the vendor
             return null;
         }
     }
