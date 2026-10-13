@@ -5,11 +5,14 @@ declare(strict_types=1);
 namespace Psalm\SymfonyPsalmPlugin\Twig;
 
 use PhpParser\Node\Expr\MethodCall;
+use Psalm\CodeLocation;
 use Psalm\Internal\Analyzer\StatementsAnalyzer;
+use Psalm\Internal\DataFlow\DataFlowNode;
 use Psalm\Plugin\EventHandler\AfterMethodCallAnalysisInterface;
 use Psalm\Plugin\EventHandler\Event\AfterMethodCallAnalysisEvent;
 use Psalm\SymfonyPsalmPlugin\Exception\TemplateNameUnresolvedException;
 use Psalm\Type\Atomic\TKeyedArray;
+use Psalm\Type\TaintKind;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Twig\Environment;
 
@@ -24,12 +27,14 @@ final class AnalyzedTemplatesTainter implements AfterMethodCallAnalysisInterface
     {
         $codebase = $event->getCodebase();
         $expr = $event->getExpr();
-        $method_id = $event->getMethodId();
+        // The declaring method: a controller's `$this->render()` names the controller class in the method id.
+        // Its name comes in lower case.
+        $method_id = strtolower($event->getDeclaringMethodId());
         $statements_source = $event->getStatementsSource();
 
         if (
             null === $codebase->taint_flow_graph
-            || !$expr instanceof MethodCall || !\in_array($method_id, [Environment::class.'::render', AbstractController::class.'::render', AbstractController::class.'::renderView'], true) || empty($expr->args)
+            || !$expr instanceof MethodCall || !\in_array($method_id, array_map('strtolower', [Environment::class.'::render', AbstractController::class.'::render', AbstractController::class.'::renderView']), true) || empty($expr->args)
             || !isset($expr->args[0]->value)
             || !isset($expr->args[1]->value)
         ) {
@@ -83,6 +88,18 @@ final class AnalyzedTemplatesTainter implements AfterMethodCallAnalysisInterface
 
         // Taints going _out_ of the template
         $source = Context::getForTemplate($templateName);
+
+        // AbstractController::render() puts the output in the Response it builds, out of the analysis' sight
+        if (strtolower(AbstractController::class.'::render') === $method_id) {
+            $response = DataFlowNode::getForTaint(
+                AbstractController::class.'::render',
+                new CodeLocation($statements_source, $expr),
+                TaintKind::INPUT_HTML,
+            );
+            $codebase->taint_flow_graph->addSink($response);
+            $codebase->taint_flow_graph->addPath($source, $response, '=');
+        }
+
         $return_type_candidate = $event->getReturnTypeCandidate();
         if (null !== $return_type_candidate) {
             foreach ($return_type_candidate->parent_nodes as $sink) {
