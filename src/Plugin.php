@@ -17,6 +17,7 @@ use Psalm\SymfonyPsalmPlugin\Handler\ParameterBagHandler;
 use Psalm\SymfonyPsalmPlugin\Handler\RequiredSetterHandler;
 use Psalm\SymfonyPsalmPlugin\Provider\FormGetErrorsReturnTypeProvider;
 use Psalm\SymfonyPsalmPlugin\Symfony\ContainerMeta;
+use Psalm\SymfonyPsalmPlugin\Taint\ControllerInput;
 use Psalm\SymfonyPsalmPlugin\Twig\AnalyzedTemplatesTainter;
 use Psalm\SymfonyPsalmPlugin\Twig\CachedTemplatesMapping;
 use Psalm\SymfonyPsalmPlugin\Twig\CachedTemplatesTainter;
@@ -38,11 +39,13 @@ final class Plugin implements PluginEntryPointInterface
         require_once __DIR__.'/Handler/ContainerDependencyHandler.php';
         require_once __DIR__.'/Handler/RequiredSetterHandler.php';
         require_once __DIR__.'/Provider/FormGetErrorsReturnTypeProvider.php';
+        require_once __DIR__.'/Taint/ControllerInput.php';
 
         $registration->registerHooksFromClass(HeaderBagHandler::class);
         $registration->registerHooksFromClass(ConsoleHandler::class);
         $registration->registerHooksFromClass(ContainerDependencyHandler::class);
         $registration->registerHooksFromClass(RequiredSetterHandler::class);
+        $registration->registerHooksFromClass(ControllerInput::class);
 
         if (class_exists(\Doctrine\ORM\QueryBuilder::class)) {
             require_once __DIR__.'/Handler/DoctrineQueryBuilderHandler.php';
